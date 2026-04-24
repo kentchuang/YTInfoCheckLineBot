@@ -61,7 +61,7 @@ function processMessage(event) {
         replyToLine(replyToken, "⛔ 抱歉，這是一個私人專用的事實查核機器人，僅限於特定的家用群組內提供服務，恕不開放一對一私訊功能喔！\n\n💡 若需使用，請洽管理員取得「群組代號」，經設定後才可使用。");
       }
       // 至於被亂加到其他不相干的群組，則維持完全靜默 (已讀不回)，避免洗版
-      return; 
+      return;
     }
   }
 
@@ -75,16 +75,21 @@ function processMessage(event) {
     // 找出文字中的第一個 YouTube 連結
     const ytRegex = /(https?:\/\/(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)[\w-]+)/;
     const match = userText.match(ytRegex);
-    
+
     if (match) {
       const videoUrl = match[1];
       const oembedUrl = 'https://www.youtube.com/oembed?url=' + encodeURIComponent(videoUrl) + '&format=json';
       const oembedRes = UrlFetchApp.fetch(oembedUrl, { muteHttpExceptions: true });
-      
+
       if (oembedRes.getResponseCode() === 200) {
         const oembedData = JSON.parse(oembedRes.getContentText());
         // 幫 AI 補足缺乏的神奇上下文
-        videoContext = `請分析這支影片。網址：${videoUrl}\n影片標題：${oembedData.title}\n頻道名稱：${oembedData.author_name}`;
+        videoContext = `
+# 📥 輸入資料區
+- 頻道名稱/連結：${oembedData.author_name} (${videoUrl})
+- 影片內容標題：${oembedData.title}
+- 異常跡象觀察 (選填)：(系統自動偵測標題黨與內容農場語法)
+`;
       }
     }
   } catch (err) {
@@ -111,34 +116,37 @@ function isYoutubeUrl(text) {
  */
 function callGeminiAPI(userInput) {
   const systemInstruction = `
-### 角色
-你是一位精通「穿透點擊誘餌（Clickbait）」與「實質內容解析」的 LINE 事實查核專家。你擅長辨識影片標題與內容是否有落差，並將影片真實的論點與外部證據進行對比。
+# 💡 角色定位
+你是一位資深的「數位內容鑑識專家」與「事實查核調查員」。你擅長透過語言邏輯與頻道特徵，精準判別 YouTube 內容是否由 AI 生成（GenAI）或屬於內容農場，並以最精簡、直觀的方式評估資訊真實性。
 
-### 任務
-分析使用者提供的影片內容（請務必根據影片的實質主張、內部敘述與邏輯進行分析）。**注意：你的所有評論應針對影片的「實質論點」，而非僅對影片標題進行字面上的分析。**
-在 **250 字內**執行以下流程：
-1. **秒懂結論**：一句話指出影片內容的「核心真實屬性」。
-2. **正反擊點（VS）**：對比「影片內的主要主張」與你所知的相關背景知識與權威立場。
-3. **警示燈號**：識別邏輯謬誤（如：標題與內容不符、去脈絡化、關鍵資訊隱瞞）。
-4. **查證路徑**：提供一個可信的關鍵字或機構，引導使用者自行輸入搜尋引擎複查最新事實。
+# 🎯 核心任務
+針對使用者提供的 YouTube 資訊進行雙維度快檢：
+1. **AI 生成判定**：識別標題、頻道命名與內容邏輯中的 AI 痕跡或內容農場特徵。
+2. **真實性評估**：針對核心觀點進行邏輯評估，給出燈號評級。
 
-### 重要聲明
-本分析基於 AI 訓練資料，**不包含即時聯網搜尋**。請務必透過「查證建議」的關鍵字向信任機構自行核實最新資訊。
+# 🛠 運作流程
+1. **防呆檢查**：若輸入資訊不足、網址錯誤或無法解析，請直接回覆：'⚠️ 無法讀取影片資訊，請確認網址是否正確。'，嚴禁產生幻覺。
+2. **特徵掃描**：分析標題是否為「點擊誘餌」、頻道是否為「批量產出型」命名、邏輯是否過於結構化（AI 編排）。
+3. **精簡封裝**：將所有分析轉化為行動裝置友善的短句與燈號。
 
-### LINE 專屬格式規範（嚴格執行）
-- **標題使用粗體**，並適度加入 Emoji。
-- **字數控制**：總長度介於 150-200 字，禁止廢話。
+# 🚫 限制與原則
+- **燈號強制**：第一句話必須使用 🔴、🟢、🟡 燈號開頭。
+- **證據導向**：判斷必須指出具體跡象（如：語法生硬、情緒勒索、標題黨）。
+- **效率優先**：刪除冗贅辭令，確保在 LINE 手機端能一屏看完重點。
 
-### 輸出架構範例
-📌 **核心摘要**：[一句話破題]
+# 🏁 最終呈現格式
+[燈號] **核心摘要：[一句話總結真偽與 AI 程度]**
 
-⚖️ **觀點對照**：
-- 影片方：[內容中的核心主張]
-- 查證方：[實證反論/證據]
+---
+### 🤖 AI 鑑定 (參與度：XX%)
+- **特徵**：[分析標題/頻道命名/邏輯感]
+- **屬性**：[原創實拍 / AI 農場 / 搬運剪輯]
 
-⚠️ **風險診斷**：[偵測到的邏輯漏洞或標題誤導類型]
+### ⚖️ 真實性評估
+- [指出事實正確性或邏輯漏洞]
 
-🔍 **查證建議**：請搜尋「[關鍵字]」或參考 [機構/資料來源] 核實最新資訊。
+### 🚩 專家結論
+[一句話建議：值得訂閱 / 娛樂參考 / 內容農場 / 謹慎查證]
   `;
 
   // JSON payload
@@ -188,7 +196,7 @@ function callGeminiAPI(userInput) {
       const response = UrlFetchApp.fetch(url, options);
       const code = response.getResponseCode();
       const responseText = response.getContentText();
-      
+
       let json;
       try {
         json = JSON.parse(responseText);
@@ -208,7 +216,7 @@ function callGeminiAPI(userInput) {
           console.log(`[${model}] 負載過高 (${code})，冷卻 4 秒後切換下一順位...`);
           lastErrorDetail = `📌 [${model}] 目前高負載 (${code})`;
           Utilities.sleep(4000); // 停頓 4 秒，避免瞬間連續請求觸發 429 頻率限制
-          continue; 
+          continue;
         } else {
           // 若是其它語法或欄位錯誤，不需換模型，直接回傳錯誤
           console.error(`Gemini API Error [${model}]:`, responseText);
