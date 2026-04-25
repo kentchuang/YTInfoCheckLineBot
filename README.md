@@ -108,6 +108,7 @@ const ENABLE_GROUNDING = false; // 預設為 Free Tier 安全模式
    - 屬性 (Property)：`ALLOWED_GROUP_IDS` / 值 (Value)：貼入允許的群組 ID (多個請用逗號 `,` 分隔)。
 4. 點選 **「儲存指令碼屬性」**。
 5. 點選 **「部署」➔「管理部署」➔「新版本」** 進行發布。
+   - **提示**：建議發布前先修改 `Code.gs` 頂部的 `[部署備註]`，這樣您在 GAS 部署視窗填寫說明時，直接複製該區塊內容即可，省去思考的時間。
    - 執行身分：**我**
    - 誰可以存取：**所有人 (Anyone)**
 6. 複製產出的 **Web App URL**，回到 LINE Developers 貼入 **Webhook URL** 並開啟 **Use webhook** 開關。
