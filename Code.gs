@@ -117,23 +117,25 @@ function isYoutubeUrl(text) {
 function callGeminiAPI(userInput) {
   const systemInstruction = `
 # 💡 角色定位
-你是一位資深的「數位內容鑑識專家」與「事實查核調查員」。你擅長透過語言邏輯與頻道特徵，精準判別 YouTube 內容是否由 AI 生成（GenAI）或屬於內容農場，並以最精簡、直觀的方式評估資訊真實性。
+你是一位資深的「數位內容鑑識專家」與「事實查核調查員」。你擅長透過語言邏輯與頻道特徵，精準判別 YouTube 內容是否由 AI 生成（GenAI）或屬於內容農場，並結合事實查核邏輯評估資訊真實性。
 
 # 🎯 核心任務
-針對使用者提供的 YouTube 資訊進行雙維度快檢：
-1. AI 生成判定：識別標題、頻道命名與內容邏輯中的 AI 痕跡或內容農場特徵。
-2. 真實性評估：針對核心觀點進行邏輯評估，給出燈號評級。
+針對使用者提供的影片資訊進行多維度分析：
+1. 宣稱 (Claim) 識別：精確提取影片中的核心事實斷言，區分事實與觀點。
+2. AI 生成判定：識別標題黨、批量化命名與 AI 腳本痕跡。
+3. 事實性評估：依據來源品質層級（政府/學術 > 權威媒體 > 一般報導 > 社群傳聞）與邏輯謬誤（如：去脈絡化、假等價）給出評價。
 
 # 🛠 運作流程
-1. 防呆檢查：若輸入資訊不足、網址錯誤或無法解析，請直接回覆：'⚠️ 無法讀取影片資訊，請確認網址是否正確。'，嚴禁產生幻覺。
-2. 特徵掃描：分析標題是否為「點擊誘餌」、頻道是否為「批量產出型」命名、邏輯是否過於結構化（AI 編排）。
-3. 精簡封裝：將所有分析轉化為行動裝置友善的短句與燈號。
+1. 防呆檢查：資訊不足或無法解析時回覆：'⚠️ 無法讀取影片資訊，請確認網址是否正確。'。
+2. 邏輯掃描：檢驗論據是否包含「櫻桃小丸子式採樣」或「統計誤導」。
+3. 簡化封裝：將複雜分析轉化為行動裝置友善的燈號與短句。
 
-# 🚫 限制與原則 (重要)
-- 嚴禁輸出任何 Markdown 語法：禁止使用 #, ##, ###, **, ---, _ 等字元。
-- 燈號強制：第一句話必須使用 🔴、🟢、🟡 燈號開頭。
-- 格式優化：使用 Emoji、▫️ 符號與換行進行視覺分割。
-- 效率優先：刪除冗贅辭令，確保在 LINE 手機端能一屏看完重點。
+# 🚫 限制與原則
+- 嚴禁 Markdown：禁止使用 #, ##, **, --- 等標記語法。
+- 燈號開頭：第一句話必須使用 🔴、🟢、🟡 燈號。
+- 視覺優化：善用 Emoji (▫️, 🤖, ⚖️, 🚩) 與換行。
+- 屏效比：確保重點在 LINE 手機端能一屏看完。
+
 
 # 🏁 最終呈現格式 (嚴格執行)
 [燈號] 核心摘要：[一句話總結真偽與 AI 程度]
@@ -177,13 +179,14 @@ function callGeminiAPI(userInput) {
     "muteHttpExceptions": true
   };
 
-  // 定義備援模型清單 (針對 2026.04 最新 Free Tier 配額優化)
+  // 定義備援模型清單 (針對 2026.04 最新配額優化)
   const FALLBACK_MODELS = [
-    'gemini-3.1-flash-lite-preview', // 新世代首選：速度極快且免費額度高
-    'gemini-2.5-flash-lite',         // 2.5 系列穩定版首選
-    'gemini-2.5-flash',              // 2.5 系列功能較強的備援
-    'gemini-1.5-flash-8b',           // 最終保底：雖然是舊世代，但 RPM 限制最鬆
-    'gemini-flash-lite-latest'       // 動態節點保險
+    'gemini-3.1-flash-lite-preview', // 首選：速度極快且配額高
+    'gemini-3-flash-preview',        // 備選：3 系列平衡版
+    'gemini-2.5-flash-lite',         // 穩定版備援
+    'gemini-2.5-flash',              // 高性能備援
+    'gemini-1.5-flash-8b',           // 最後保底 (Legacy)
+    'gemini-flash-lite-latest'       // 動態節點
   ];
 
   let lastErrorDetail = "📌 **所有模型均無法連線**";
@@ -252,8 +255,16 @@ function replyToLine(replyToken, text) {
       "Content-Type": "application/json",
       "Authorization": "Bearer " + LINE_ACCESS_TOKEN
     },
-    "payload": JSON.stringify(payload)
+    "payload": JSON.stringify(payload),
+    "muteHttpExceptions": true
   };
 
-  UrlFetchApp.fetch(url, options);
+  try {
+    const response = UrlFetchApp.fetch(url, options);
+    if (response.getResponseCode() !== 200) {
+      console.error('LINE Reply Error:', response.getContentText());
+    }
+  } catch (e) {
+    console.error('LINE API Connection Error:', e.message);
+  }
 }

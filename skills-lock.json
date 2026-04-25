@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "skills": {
+    "fact-checker": {
+      "source": "shubhamsaboo/awesome-llm-apps",
+      "sourceType": "github",
+      "computedHash": "b8b003553b0c268b4c21cfc149e6ff53f8beb1aa1ac8e2642a74104426d8cb3a"
+    },
+    "gemini-api-dev": {
+      "source": "google-gemini/gemini-skills",
+      "sourceType": "github",
+      "computedHash": "e0b9bbb6f2dc8b5c7fec81ab1479209090298656c171aaf9c761dda30753e900"
+    },
+    "google-apps-script": {
+      "source": "jezweb/claude-skills",
+      "sourceType": "github",
+      "computedHash": "7ee24abaa186162ab84c91d43a5f3d5705400f6eaed0747fde764e1b435c3e32"
+    }
+  }
+}
