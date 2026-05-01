@@ -1,12 +1,12 @@
 /**
- * YouTube 資訊事實查核 LINE Bot
- * 版別：v2026.04.25.02
+ * YouTube AI 內容助手 LINE Bot
+ * 版別：v2026.05.01.01
  * 部署環境: Google Apps Script (GAS)
  * 
  * [部署備註]
- * 1. 升級至 Gemini 3.1/3 系列模型並保留舊版備援。
- * 2. 強化事實查核邏輯（宣稱識別與來源品質分級）。
- * 3. 優化 LINE API 回覆穩定性。
+ * 1. 新增「影片整理」功能與關鍵字觸發機制。
+ * 2. 全面採用 Gemini 3.1/3 系列模型並優化備援。
+ * 3. 統一 LINE 回覆介面，嚴禁 Markdown 確保行動端閱讀體驗。
  */
 
 // 1. 金鑰讀取 (從 GAS 「指令碼屬性」中讀取，確保安全性)
@@ -41,7 +41,7 @@ function doPost(e) {
  * 處理訊息邏輯
  */
 function processMessage(event) {
-  const userText = event.message.text;
+  const userText = event.message.text.trim();
   const replyToken = event.replyToken;
 
   // 1. 隱藏指令：查詢群組代號
@@ -54,57 +54,78 @@ function processMessage(event) {
     return;
   }
 
-  // 2. 群組白名單鎖定 (支援多個群組，請將群組 ID 存於 GAS 指令碼屬性 ALLOWED_GROUP_IDS，以逗號分隔)
+  // 2. 指令查詢
+  if (userText === '指令查詢' || userText === '幫助' || userText === '/help') {
+    const helpMsg = `🤖 YouTube AI 內容助手 指令表：
+▫️ 資訊查核 [連結]：分析真偽（關鍵字：查核、核實、確認）。
+▫️ 影片整理 [連結]：摘要內容（關鍵字：大綱、摘要、整理）。
+▫️ 指令查詢：顯示此列表。
+
+💡 範例：
+影片大綱 https://youtu.be/...
+影片核實 https://youtu.be/...`;
+    replyToLine(replyToken, helpMsg);
+    return;
+  }
+
+  // 3. 群組白名單鎖定 (支援多個群組，請將群組 ID 存於 GAS 指令碼屬性 ALLOWED_GROUP_IDS，以逗號分隔)
   const rawAllowedIds = PropertiesService.getScriptProperties().getProperty('ALLOWED_GROUP_IDS') || "";
   const ALLOWED_GROUP_IDS = rawAllowedIds ? rawAllowedIds.split(',').map(id => id.trim()) : [];
 
   if (ALLOWED_GROUP_IDS.length > 0) {
-    // 如果不符合白名單群組，進行阻擋處理
     if (event.source.type !== 'group' || !ALLOWED_GROUP_IDS.includes(event.source.groupId)) {
-      // 若是有人試圖私訊 (user)，給予客氣的拒絕回應
       if (event.source.type === 'user') {
         replyToLine(replyToken, "⛔ 抱歉，這是一個私人專用的事實查核機器人，僅限於特定的家用群組內提供服務，恕不開放一對一私訊功能喔！\n\n💡 若需使用，請洽管理員取得「群組代號」，經設定後才可使用。");
       }
-      // 至於被亂加到其他不相干的群組，則維持完全靜默 (已讀不回)，避免洗版
       return;
     }
   }
 
-  if (!isYoutubeUrl(userText)) {
-    return; // 靜默原則
-  }
+  // 4. 關鍵字觸發：資訊查核 或 影片整理
+  const factKeywords = ['資訊查核', '查核', '事實查核', '影片核實', '核實', '資訊確認', '確認'];
+  const summaryKeywords = ['影片整理', '整理', '影片大綱', '大綱', '內容整理', '內容摘要', '摘要', '總結'];
 
-  // A. 抓取 YouTube 影片標題 (避免 AI 憑空亂猜)
-  let videoContext = userText;
-  try {
-    // 找出文字中的第一個 YouTube 連結
-    const ytRegex = /(https?:\/\/(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)[\w-]+)/;
-    const match = userText.match(ytRegex);
+  const isFactCheck = factKeywords.some(kw => userText.startsWith(kw));
+  const isSummary = summaryKeywords.some(kw => userText.startsWith(kw));
 
-    if (match) {
-      const videoUrl = match[1];
-      const oembedUrl = 'https://www.youtube.com/oembed?url=' + encodeURIComponent(videoUrl) + '&format=json';
-      const oembedRes = UrlFetchApp.fetch(oembedUrl, { muteHttpExceptions: true });
-
-      if (oembedRes.getResponseCode() === 200) {
-        const oembedData = JSON.parse(oembedRes.getContentText());
-        // 幫 AI 補足缺乏的神奇上下文
-        videoContext = `
-# 📥 輸入資料區
-- 頻道名稱/連結：${oembedData.author_name} (${videoUrl})
-- 影片內容標題：${oembedData.title}
-- 異常跡象觀察 (選填)：(系統自動偵測標題黨與內容農場語法)
-`;
-      }
+  if (isFactCheck || isSummary) {
+    if (!isYoutubeUrl(userText)) {
+      const modeName = isFactCheck ? "資訊查核" : "影片整理";
+      replyToLine(replyToken, `⚠️ 請提供有效的 YouTube 連結。例如：\n${modeName} https://youtu.be/...`);
+      return;
     }
-  } catch (err) {
-    console.error('Oembed 抓取失敗:', err);
-  }
 
-  const analysisReport = callGeminiAPI(videoContext);
+    // A. 抓取 YouTube 影片資訊
+    let videoContext = userText;
+    try {
+      const ytRegex = /(https?:\/\/(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)[\w-]+)/;
+      const match = userText.match(ytRegex);
 
-  if (analysisReport) {
-    replyToLine(replyToken, analysisReport);
+      if (match) {
+        const videoUrl = match[1];
+        const oembedUrl = 'https://www.youtube.com/oembed?url=' + encodeURIComponent(videoUrl) + '&format=json';
+        const oembedRes = UrlFetchApp.fetch(oembedUrl, { muteHttpExceptions: true });
+
+        if (oembedRes.getResponseCode() === 200) {
+          const oembedData = JSON.parse(oembedRes.getContentText());
+          videoContext = `
+# 📥 影片基礎資訊
+- 標題：${oembedData.title}
+- 頻道：${oembedData.author_name}
+- 網址：${videoUrl}
+- 請求模式：${isFactCheck ? "事實查核" : "內容整理"}
+`;
+        }
+      }
+    } catch (err) {
+      console.error('Oembed 抓取失敗:', err);
+    }
+
+    const analysisReport = callGeminiAPI(videoContext, isFactCheck ? 'FACT_CHECK' : 'SUMMARY');
+
+    if (analysisReport) {
+      replyToLine(replyToken, analysisReport);
+    }
   }
 }
 
@@ -119,8 +140,8 @@ function isYoutubeUrl(text) {
 /**
  * 呼叫 Gemini AI (含自動降級備援機制與 Grounding)
  */
-function callGeminiAPI(userInput) {
-  const systemInstruction = `
+function callGeminiAPI(userInput, mode = 'FACT_CHECK') {
+  const FACT_CHECK_INSTRUCTION = `
 # 💡 角色定位
 你是一位資深的「數位內容鑑識專家」與「事實查核調查員」。你擅長透過語言邏輯與頻道特徵，精準判別 YouTube 內容是否由 AI 生成（GenAI）或屬於內容農場，並結合事實查核邏輯評估資訊真實性。
 
@@ -155,6 +176,36 @@ function callGeminiAPI(userInput) {
 🚩 專家結論
 [一句話建議：值得訂閱 / 娛樂參考 / 內容農場 / 謹慎查證]
   `;
+
+  const SUMMARY_INSTRUCTION = `
+# 💡 角色定位
+你是一位專業的「影片內容筆記精靈」。你擅長將長篇影片轉化為結構化、易讀的精華筆記。
+
+# 🎯 核心任務
+1. 重點摘要：提取影片的核心價值與主要論點。
+2. 結構化大綱：將內容分為 3-5 個主要章節或主題。
+3. 金句/結論：總結影片最值得記住的一句話。
+
+# 🚫 限制與原則
+- 嚴禁 Markdown 語法 (如 #, **, ---)。
+- 視覺優化：善用 Emoji (📝, 📌, 💡)。
+
+# 🏁 最終呈現格式
+📝 影片內容精華筆記
+
+📌 核心大綱：
+▫️ [大綱 1]
+▫️ [大綱 2]
+▫️ [大綱 3]
+
+💡 適合誰看？
+[分析受眾]
+
+🚩 快速總結
+[一句話精華]
+  `;
+
+  const systemInstruction = mode === 'SUMMARY' ? SUMMARY_INSTRUCTION : FACT_CHECK_INSTRUCTION;
 
   // JSON payload
   const payload = {
