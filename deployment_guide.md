@@ -1,4 +1,4 @@
-# 🚀 YouTube AI 內容助手：詳細部署指南
+# 🚀 AI 資訊查核助手：詳細部署指南
 
 本指南針對 **LINE Developers** 與 **Google AI Studio** 的設定細節進行深入說明，確保您的機器人能順利運行於群組中。
 
@@ -11,7 +11,7 @@
 2. 建立一個 **Provider** (服務提供者)，名稱可自訂（如：MyTools）。
 3. 點選 **Create a new channel**，選擇 **Messaging API**。
 4. 填寫必要資訊：
-   - **Channel name**: 機器人名稱（如：YouTube AI 助手）。
+   - **Channel name**: 機器人名稱（如：AI 資訊查核助手）。
    - **Channel description**: 機器人描述。
    - **Category**: 隨選即可。
 
