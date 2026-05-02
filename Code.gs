@@ -1,12 +1,14 @@
 /**
- * YouTube AI 內容助手 LINE Bot
- * 版別：v2026.05.01.01
+ * AI 資訊查核助手 LINE Bot
+ * 版別：v2026.05.02.01
  * 部署環境: Google Apps Script (GAS)
- * 
+ *
  * [部署備註]
- * 1. 新增「影片整理」功能與關鍵字觸發機制。
- * 2. 全面採用 Gemini 3.1/3 系列模型並優化備援。
- * 3. 統一 LINE 回覆介面，嚴禁 Markdown 確保行動端閱讀體驗。
+ * 1. 新增「詐騙網址偵測」功能：靜態風險評分 + Gemini AI 深度研判。
+ * 2. 新增 AI 意圖識別機制：以 Gemini 判別使用者意圖，取代單純前綴比對。
+ * 3. 整合三模式運作：資訊查核、影片整理、詐騙網址偵測。
+ * 4. 全面採用 Gemini 3.1/3 系列模型並優化備援。
+ * 5. 統一 LINE 回覆介面，嚴禁 Markdown 確保行動端閱讀體驗。
  */
 
 // 1. 金鑰讀取 (從 GAS 「指令碼屬性」中讀取，確保安全性)
@@ -56,14 +58,22 @@ function processMessage(event) {
 
   // 2. 指令查詢
   if (userText === '指令查詢' || userText === '幫助' || userText === '/help') {
-    const helpMsg = `🤖 YouTube AI 內容助手 指令表：
-▫️ 資訊查核 [連結]：分析真偽（關鍵字：查核、核實、確認）。
-▫️ 影片整理 [連結]：摘要內容（關鍵字：大綱、摘要、整理）。
-▫️ 指令查詢：顯示此列表。
+    const helpMsg = `🤖 AI 資訊查核助手 指令表：
+
+▫️ 資訊查核 [YouTube連結]
+   關鍵字：查核、核實、確認
+
+▫️ 影片整理 [YouTube連結]
+   關鍵字：大綱、摘要、整理
+
+🔍 詐騙網址偵測 [任意連結]
+   關鍵字：詐騙、釣魚、可疑、偵測、網址查核
+
+📋 指令查詢 / 幫助 / /help
 
 💡 範例：
 影片大綱 https://youtu.be/...
-影片核實 https://youtu.be/...`;
+這個網址有詐騙嗎 https://xxx.shop/...`;
     replyToLine(replyToken, helpMsg);
     return;
   }
@@ -81,31 +91,57 @@ function processMessage(event) {
     }
   }
 
-  // 4. 關鍵字觸發：資訊查核 或 影片整理
-  const factKeywords = ['資訊查核', '查核', '事實查核', '影片核實', '核實', '資訊確認', '確認'];
+  // 4. 關鍵字觸發：先做靜態比對，再用 AI 意圖識別作為補強
+  const factKeywords    = ['資訊查核', '查核', '事實查核', '影片核實', '核實', '資訊確認', '確認'];
   const summaryKeywords = ['影片整理', '整理', '影片大綱', '大綱', '內容整理', '內容摘要', '摘要', '總結'];
+  const scamKeywords    = ['詐騙', '釣魚', '可疑', '偵測', '網址查核', '詐騙偵測', '詐騙網址', '安全嗎', '安不安全', '有沒有詐騙'];
 
-  const isFactCheck = factKeywords.some(kw => userText.startsWith(kw));
-  const isSummary = summaryKeywords.some(kw => userText.startsWith(kw));
+  let isFactCheck = factKeywords.some(kw => userText.startsWith(kw));
+  let isSummary   = summaryKeywords.some(kw => userText.startsWith(kw));
+  let isScamCheck = scamKeywords.some(kw => userText.includes(kw));
 
+  // 4-A. 若靜態比對未命中，但訊息含有連結，則呼叫 AI 意圖識別
+  const hasAnyUrl = /https?:\/\/[^\s]+/.test(userText);
+  if (!isFactCheck && !isSummary && !isScamCheck && hasAnyUrl) {
+    const intent = detectIntentWithAI(userText);
+    if (intent === 'FACT_CHECK')  isFactCheck = true;
+    if (intent === 'SUMMARY')     isSummary   = true;
+    if (intent === 'SCAM_CHECK')  isScamCheck = true;
+  }
+
+  // 4-B. 詐騙網址偵測
+  if (isScamCheck) {
+    const urlMatch = userText.match(/https?:\/\/[^\s]+/);
+    if (!urlMatch) {
+      replyToLine(replyToken, '⚠️ 請提供完整網址以進行詐騙偵測。\n範例：這個安全嗎 https://xxx.shop/...');
+      return;
+    }
+    const targetUrl = urlMatch[0];
+    // 靜態風險評分
+    const riskScore = analyzeUrlRisk(targetUrl);
+    // AI 深度研判
+    const scamReport = callGeminiAPI(`待偵測網址：${targetUrl}\n靜態風險分數：${riskScore}分 (70分以上為高風險)`, 'SCAM_CHECK');
+    if (scamReport) replyToLine(replyToken, scamReport);
+    return;
+  }
+
+  // 4-C. 資訊查核 或 影片整理
   if (isFactCheck || isSummary) {
     if (!isYoutubeUrl(userText)) {
-      const modeName = isFactCheck ? "資訊查核" : "影片整理";
+      const modeName = isFactCheck ? '資訊查核' : '影片整理';
       replyToLine(replyToken, `⚠️ 請提供有效的 YouTube 連結。例如：\n${modeName} https://youtu.be/...`);
       return;
     }
 
-    // A. 抓取 YouTube 影片資訊
+    // 抓取 YouTube 影片資訊 (oEmbed)
     let videoContext = userText;
     try {
       const ytRegex = /(https?:\/\/(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)[\w-]+)/;
       const match = userText.match(ytRegex);
-
       if (match) {
         const videoUrl = match[1];
         const oembedUrl = 'https://www.youtube.com/oembed?url=' + encodeURIComponent(videoUrl) + '&format=json';
         const oembedRes = UrlFetchApp.fetch(oembedUrl, { muteHttpExceptions: true });
-
         if (oembedRes.getResponseCode() === 200) {
           const oembedData = JSON.parse(oembedRes.getContentText());
           videoContext = `
@@ -113,7 +149,7 @@ function processMessage(event) {
 - 標題：${oembedData.title}
 - 頻道：${oembedData.author_name}
 - 網址：${videoUrl}
-- 請求模式：${isFactCheck ? "事實查核" : "內容整理"}
+- 請求模式：${isFactCheck ? '事實查核' : '內容整理'}
 `;
         }
       }
@@ -122,10 +158,7 @@ function processMessage(event) {
     }
 
     const analysisReport = callGeminiAPI(videoContext, isFactCheck ? 'FACT_CHECK' : 'SUMMARY');
-
-    if (analysisReport) {
-      replyToLine(replyToken, analysisReport);
-    }
+    if (analysisReport) replyToLine(replyToken, analysisReport);
   }
 }
 
@@ -135,6 +168,88 @@ function processMessage(event) {
 function isYoutubeUrl(text) {
   const ytRegex = /(https?:\/\/(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)[\w-]+)/;
   return ytRegex.test(text);
+}
+
+/**
+ * 以 Gemini AI 判別使用者意圖 (靜態比對未命中時的輔助識別)
+ * @param {string} userText - 使用者訊息
+ * @return {string} 'FACT_CHECK' | 'SUMMARY' | 'SCAM_CHECK' | 'NONE'
+ */
+function detectIntentWithAI(userText) {
+  const prompt = `你是一個意圖分類器，請判斷以下使用者訊息屬於哪一種操作意圖，只需回覆對應的英文代碼，不要有其他文字：
+
+可用代碼：
+- FACT_CHECK：使用者想查核 YouTube 影片的真實性、是否為 AI 生成或內容農場。
+- SUMMARY：使用者想取得 YouTube 影片的摘要、大綱或重點整理。
+- SCAM_CHECK：使用者想確認某個網址是否為詐騙、釣魚或惡意連結。
+- NONE：以上皆非。
+
+使用者訊息：${userText}
+
+請僅回覆代碼（FACT_CHECK / SUMMARY / SCAM_CHECK / NONE）：`;
+
+  try {
+    const payload = {
+      'contents': [{ 'parts': [{ 'text': prompt }] }],
+      'generationConfig': { 'temperature': 0, 'maxOutputTokens': 20 }
+    };
+    const options = {
+      'method': 'post',
+      'contentType': 'application/json',
+      'payload': JSON.stringify(payload),
+      'muteHttpExceptions': true
+    };
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key=${GEMINI_API_KEY}`;
+    const res = UrlFetchApp.fetch(url, options);
+    if (res.getResponseCode() === 200) {
+      const json = JSON.parse(res.getContentText());
+      const intent = (json.candidates?.[0]?.content?.parts?.[0]?.text || 'NONE').trim().toUpperCase();
+      console.log(`[AI 意圖識別] 判別結果：${intent}`);
+      return ['FACT_CHECK', 'SUMMARY', 'SCAM_CHECK'].includes(intent) ? intent : 'NONE';
+    }
+  } catch (err) {
+    console.error('AI 意圖識別失敗:', err);
+  }
+  return 'NONE';
+}
+
+/**
+ * 詐騙網址靜態風險評分
+ * @param {string} url - 待檢測網址
+ * @return {number} riskScore - 風險點數 (70 分以上為高風險)
+ */
+function analyzeUrlRisk(url) {
+  let riskScore = 0;
+  try {
+    const urlObj = new URL(url);
+    const hostname = urlObj.hostname.toLowerCase();
+    const searchParams = urlObj.search.toLowerCase();
+
+    // 1. 高風險 TLD (+40)
+    const riskyTlds = ['.shop', '.top', '.xyz', '.vip', '.site', '.cc', '.fun', '.online', '.buzz', '.click', '.link'];
+    if (riskyTlds.some(tld => hostname.endsWith(tld))) riskScore += 40;
+
+    // 2. 詐騙系統常用 URL 參數 (2 個以上 +50)
+    const scamParams = ['m=order', 'tpl=detail', 'id=', 'lang=zh-tw', 'utm_source=line'];
+    const matchCount = scamParams.filter(p => searchParams.includes(p)).length;
+    if (matchCount >= 2) riskScore += 50;
+
+    // 3. 亂碼網域判斷 (+30)
+    const domainParts = hostname.split('.');
+    const domainMain = domainParts.length >= 2 ? domainParts[domainParts.length - 2] : '';
+    if (domainMain.length > 8) {
+      const digitCount = (domainMain.match(/\d/g) || []).length;
+      if (digitCount > 2 || !/[aeiouy]/i.test(domainMain)) riskScore += 30;
+    }
+
+    // 4. 山寨知名品牌比對 (+60)
+    const fakeBrands = ['shopeee', 'shopee-', 'tw-momo', 'm0m0', 'momoo', 'pchoome', 'p-chome', 'yahoo-', 'line-', '7-11-'];
+    if (fakeBrands.some(fb => hostname.includes(fb))) riskScore += 60;
+
+  } catch (e) {
+    console.log('URL 解析錯誤: ' + url);
+  }
+  return riskScore;
 }
 
 /**
@@ -205,7 +320,45 @@ function callGeminiAPI(userInput, mode = 'FACT_CHECK') {
 [一句話精華]
   `;
 
-  const systemInstruction = mode === 'SUMMARY' ? SUMMARY_INSTRUCTION : FACT_CHECK_INSTRUCTION;
+  const SCAM_CHECK_INSTRUCTION = `
+# 💡 角色定位
+你是一位資深的「網路詐騙鑑識專家」與「資安分析師」。你擅長透過網域特徵、URL 結構與社交工程手法，精準判別連結是否為詐騙、釣魚或惡意網站。
+
+# 🎯 核心任務
+你將收到一個待偵測網址以及系統預先計算的靜態風險分數，請綜合判斷：
+1. 網域風險：TLD 類型、品牌仿冒、網域亂碼程度。
+2. 結構風險：URL 路徑是否有典型詐騙參數組合。
+3. 社交工程特徵：是否模仿知名電商、物流、政府或金融機構。
+4. 整體風險評級：🔴 高風險 / 🟡 中風險 / 🟢 低風險。
+
+# 🚫 限制與原則
+- 嚴禁 Markdown 語法 (如 #, **, ---)。
+- 第一句必須以風險燈號 (🔴 🟡 🟢) 開頭。
+- 善用 Emoji (🔍, ⚠️, 🛡️, 🚫) 增加可讀性。
+- 結論必須包含明確的建議行動。
+
+# 🏁 最終呈現格式 (嚴格執行)
+[燈號] 風險摘要：[一句話評定]
+
+🔍 網域分析
+▫️ TLD 類型：[評估]
+▫️ 品牌仿冒：[有 / 無 / 疑似]
+▫️ 網域特徵：[說明]
+
+⚠️ URL 結構風險
+▫️ [指出可疑的路徑或參數]
+
+🛡️ 風險評級
+靜態掃描分數：[靜態風險分數]分
+整體評級：[🔴 高風險 / 🟡 中風險 / 🟢 低風險]
+
+🚫 建議行動
+[明確告知使用者該怎麼做]
+  `;
+
+  const systemInstruction = mode === 'SUMMARY' ? SUMMARY_INSTRUCTION
+                          : mode === 'SCAM_CHECK' ? SCAM_CHECK_INSTRUCTION
+                          : FACT_CHECK_INSTRUCTION;
 
   // JSON payload
   const payload = {
@@ -235,14 +388,12 @@ function callGeminiAPI(userInput, mode = 'FACT_CHECK') {
     "muteHttpExceptions": true
   };
 
-  // 定義備援模型清單 (針對 2026.04 最新配額優化)
+  // 定義備援模型清單 (針對 2026.05 最新配額優化)
   const FALLBACK_MODELS = [
     'gemini-3.1-flash-lite-preview', // 首選：速度極快且配額高
     'gemini-3-flash-preview',        // 備選：3 系列平衡版
-    'gemini-2.5-flash-lite',         // 穩定版備援
     'gemini-2.5-flash',              // 高性能備援
-    'gemini-1.5-flash-8b',           // 最後保底 (Legacy)
-    'gemini-flash-lite-latest'       // 動態節點
+    'gemini-2.5-flash-lite',         // 穩定省錢備援
   ];
 
   let lastErrorDetail = "📌 **所有模型均無法連線**";
