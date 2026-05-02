@@ -1,6 +1,6 @@
 /**
  * AI 資訊查核助手 LINE Bot
- * 版別：v2026.05.02.02
+ * 版別：v2026.05.02.03
  * 部署環境: Google Apps Script (GAS)
  *
  * [部署備註]
@@ -283,6 +283,7 @@ function callGeminiAPI(userInput, mode = 'FACT_CHECK') {
 
 
 # 🏁 最終呈現格式 (嚴格執行)
+燈號說明：🔴 高風險 / 🟡 中風險 / 🟢 低風險
 [燈號] 核心摘要：[一句話總結真偽與 AI 程度]
 
 🤖 AI 鑑定 (參與度：XX%)
@@ -342,6 +343,7 @@ function callGeminiAPI(userInput, mode = 'FACT_CHECK') {
 - 結論必須包含明確的建議行動。
 
 # 🏁 最終呈現格式 (嚴格執行)
+燈號說明：🔴 高風險 / 🟡 中風險 / 🟢 低風險
 [燈號] 風險摘要：[一句話評定]
 
 🔍 網域分析
