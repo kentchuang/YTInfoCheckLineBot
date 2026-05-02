@@ -114,8 +114,9 @@ const ENABLE_GROUNDING = false; // 預設為 Free Tier 安全模式
 
 ### 第一步：基礎環境準備
 
-1. 前往 [LINE Developers](https://developers.line.biz/) 建立 Channel，取得 `Channel Access Token`。
-2. 前往 [Google AI Studio](https://aistudio.google.com/) 取得 `Gemini API Key`（建議開啟信用卡綁定以提升穩定性）。
+1. 前往 [LINE Developers](https://developers.line.biz/) 建立 Channel，取得 `Channel Access Token`（詳見 [詳細設定指南](./deployment_guide.md)）。
+2. 前往 [Google AI Studio](https://aistudio.google.com/) 取得 `Gemini API Key`（詳見 [詳細設定指南](./deployment_guide.md)）。
+
 
 ### 第二步：GAS 部署與設定「指令碼屬性」 (關鍵安全設定)
 
