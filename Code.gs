@@ -1,6 +1,6 @@
 /**
  * AI 資訊查核助手 LINE Bot
- * 版別：v2026.05.02.01
+ * 版別：v2026.05.02.02
  * 部署環境: Google Apps Script (GAS)
  *
  * [部署備註]
@@ -100,9 +100,13 @@ function processMessage(event) {
   let isSummary   = summaryKeywords.some(kw => userText.startsWith(kw));
   let isScamCheck = scamKeywords.some(kw => userText.includes(kw));
 
-  // 4-A. 若靜態比對未命中，但訊息含有連結，則呼叫 AI 意圖識別
+  // 4-A. 若靜態比對未命中，但訊息含有連結且包含「描述文字」，則呼叫 AI 意圖識別
+  // 避免使用者只丟網址就觸發（必須有關鍵字或指令描述）
   const hasAnyUrl = /https?:\/\/[^\s]+/.test(userText);
-  if (!isFactCheck && !isSummary && !isScamCheck && hasAnyUrl) {
+  const textWithoutUrl = userText.replace(/https?:\/\/[^\s]+/g, '').trim();
+  const hasDescription = textWithoutUrl.length > 0;
+
+  if (!isFactCheck && !isSummary && !isScamCheck && hasAnyUrl && hasDescription) {
     const intent = detectIntentWithAI(userText);
     if (intent === 'FACT_CHECK')  isFactCheck = true;
     if (intent === 'SUMMARY')     isSummary   = true;
