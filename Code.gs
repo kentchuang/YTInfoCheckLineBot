@@ -121,10 +121,12 @@ function processMessage(event) {
       return;
     }
     const targetUrl = urlMatch[0];
-    // 靜態風險評分
+    // 1. 靜態風險評分
     const riskScore = analyzeUrlRisk(targetUrl);
-    // AI 深度研判
-    const scamReport = callGeminiAPI(`待偵測網址：${targetUrl}\n靜態風險分數：${riskScore}分 (70分以上為高風險)`, 'SCAM_CHECK');
+    // 2. 即時抓取網頁內容 (利用 GAS fetch，不消耗搜尋配額)
+    const pageContext = fetchWebPageContext(targetUrl);
+    // 3. AI 深度研判 (結合網址特徵 + 網頁內容)
+    const scamReport = callGeminiAPI(`待偵測網址：${targetUrl}\n靜態風險分數：${riskScore}分\n\n網頁內容摘要：\n${pageContext}`, 'SCAM_CHECK');
     if (scamReport) replyToLine(replyToken, scamReport);
     return;
   }
@@ -254,6 +256,42 @@ function analyzeUrlRisk(url) {
     console.log('URL 解析錯誤: ' + url);
   }
   return riskScore;
+}
+
+/**
+ * 即時抓取網頁內容作為 AI 研判依據
+ * @param {string} url - 待偵測網址
+ * @return {string} 網頁標題與內容摘要
+ */
+function fetchWebPageContext(url) {
+  try {
+    const response = UrlFetchApp.fetch(url, {
+      muteHttpExceptions: true,
+      followRedirects: true,
+      validateHttpsCertificates: false, // 詐騙網站常有憑證問題，強制讀取
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0" }
+    });
+    
+    const code = response.getResponseCode();
+    if (code !== 200) return `[無法正常存取] 伺服器回傳狀態碼：${code}`;
+    
+    const html = response.getContentText();
+    // 1. 提取標題
+    const titleMatch = html.match(/<title>([\s\S]*?)<\/title>/i);
+    const title = titleMatch ? titleMatch[1].trim() : "無標題";
+    
+    // 2. 提取 Body 文本 (去標籤、去腳本，取前 1200 字)
+    const cleanBody = html.replace(/<script[\s\S]*?<\/script>/gi, '')
+                          .replace(/<style[\s\S]*?<\/style>/gi, '')
+                          .replace(/<[^>]+>/g, ' ')
+                          .replace(/\s+/g, ' ')
+                          .trim()
+                          .substring(0, 1200);
+                          
+    return `標題：${title}\n內容預覽：${cleanBody}`;
+  } catch (e) {
+    return `[存取失敗] 原因：${e.message}`;
+  }
 }
 
 /**
