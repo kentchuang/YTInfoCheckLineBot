@@ -11,9 +11,9 @@
 2. 建立一個 **Provider** (服務提供者)，名稱可自訂（如：MyTools）。
 3. 點選 **Create a new channel**，選擇 **Messaging API**。
 4. 填寫必要資訊：
-   - **Channel name**: 機器人名稱（如：AI 資訊查核助手）。
-   - **Channel description**: 機器人描述。
-   - **Category**: 隨選即可。
+   - **Channel name**：機器人名稱（如：AI 資訊查核助手）。
+   - **Channel description**：機器人描述。
+   - **Category**：隨選即可。
 
 ### 🔹 取得 Channel Access Token
 1. 進入剛建立的 Channel。
@@ -59,6 +59,6 @@
 完成上述設定後，請回到 GAS 編輯器：
 1. 點選 **專案設定 (⚙️)** ➔ **指令碼屬性**。
 2. 將 `LINE_ACCESS_TOKEN` 與 `GEMINI_API_KEY` 填入。
-3. 若要啟用群組鎖定，請先隨便拉一個群組輸入 `/get_group_id` 取得 ID，再回填至 `ALLOWED_GROUP_IDS`。
+3. 若要啟用群組鎖定，請先將機器人**加入任一群組**並輸入 `/get_group_id` 取得 ID，再回填至 `ALLOWED_GROUP_IDS`。
 
 > 💡 **部署提醒**：每次修改 `Code.gs` 後，請務必執行 **「部署 ➔ 管理部署 ➔ 編輯 ➔ 新版本」**，否則 LINE Webhook 執行的是舊版程式碼。

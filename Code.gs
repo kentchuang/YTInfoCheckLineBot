@@ -375,7 +375,7 @@ function callGeminiAPI(userInput, mode = 'FACT_CHECK') {
       "maxOutputTokens": ENABLE_GROUNDING ? 2000 : 1024
     }
   };
-  // 旗標為 true時，動態加入聯網檢索工具
+  // 旗標為 true 時，動態加入聯網檢索工具
   if (ENABLE_GROUNDING) {
     payload["tools"] = [{
       "google_search_retrieval": {
@@ -402,7 +402,7 @@ function callGeminiAPI(userInput, mode = 'FACT_CHECK') {
     'gemini-2.5-flash-lite',         // 穩定省錢備援
   ];
 
-  let lastErrorDetail = "📌 **所有模型均無法連線**";
+  let lastErrorDetail = "📌 所有模型均無法連線";
 
   // 遍歷所有備用模型
   for (const model of FALLBACK_MODELS) {
@@ -436,7 +436,7 @@ function callGeminiAPI(userInput, mode = 'FACT_CHECK') {
         } else {
           // 若是其它語法或欄位錯誤，不需換模型，直接回傳錯誤
           console.error(`Gemini API Error [${model}]:`, responseText);
-          let errDetail = `📌 **分析失敗 [${model}]** (Code: ${code})`;
+          let errDetail = `📌 分析失敗 [${model}] (Code: ${code})`;
           if (json.error) errDetail += "\n原因: " + json.error.message;
           return errDetail;
         }
@@ -448,7 +448,7 @@ function callGeminiAPI(userInput, mode = 'FACT_CHECK') {
     }
   }
 
-  // 如果所有模型都走完都失敗 (通常是 503 巔峰)，回傳最後的錯誤原因
+  // 如果所有模型都走完都失敗 (通常是 503 高峰)，回傳最後的錯誤原因
   return lastErrorDetail + "\n請稍後再試，或聯絡開發人員。";
 }
 
