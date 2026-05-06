@@ -1,11 +1,11 @@
 /**
  * AI 資訊查核助手 LINE Bot
- * 版別：v2026.05.02.04
+ * 版別：v2026.05.06.02
  * 部署環境: Google Apps Script (GAS)
  *
  * [部署備註]
- * 1. 新增「詐騙網址偵測」功能：靜態風險評分 + Gemini AI 深度研判。
- * 2. 新增 AI 意圖識別機制：以 Gemini 判別使用者意圖，取代單純前綴比對。
+ * 1. 移除 AI 意圖識別機制：減少非預期觸發（如一般連結分享或閒聊）。
+ * 2. 嚴格指令比對：將「查核/整理」升級為「完全比對 (Exact Match)」機制，萃取扣除網址與禮貌前綴後的純指令，徹底避免「整理房間」等句型誤觸。
  * 3. 整合三模式運作：資訊查核、影片整理、詐騙網址偵測。
  * 4. 全面採用 Gemini 3.1/3 系列模型並優化備援。
  * 5. 統一 LINE 回覆介面，嚴禁 Markdown 確保行動端閱讀體驗。
@@ -92,27 +92,25 @@ function processMessage(event) {
   }
 
   // 4. 關鍵字觸發：先做靜態比對，再用 AI 意圖識別作為補強
-  const factKeywords    = ['資訊查核', '查核', '事實查核', '影片核實', '核實', '資訊確認', '確認'];
+  const factKeywords = ['資訊查核', '查核', '事實查核', '影片核實', '核實', '資訊確認', '確認'];
   const summaryKeywords = ['影片整理', '整理', '影片大綱', '大綱', '內容整理', '內容摘要', '摘要', '總結'];
-  const scamKeywords    = ['詐騙', '釣魚', '可疑', '偵測', '網址查核', '詐騙偵測', '詐騙網址', '安全嗎', '安不安全', '有沒有詐騙'];
-
-  let isFactCheck = factKeywords.some(kw => userText.startsWith(kw));
-  let isSummary   = summaryKeywords.some(kw => userText.startsWith(kw));
-  let isScamCheck = scamKeywords.some(kw => userText.includes(kw));
-
-  // 4-A. 若靜態比對未命中，但訊息含有連結且包含「描述文字」，則呼叫 AI 意圖識別
-  // 避免使用者只丟網址就觸發（必須有關鍵字或指令描述）
-  const hasAnyUrl = /https?:\/\/[^\s]+/.test(userText);
+  const scamKeywords = ['詐騙', '釣魚', '可疑', '偵測', '網址查核', '詐騙偵測', '詐騙網址', '安全嗎', '安不安全', '有沒有詐騙'];
+  // 取得除了網址以外的所有純文字
   const textWithoutUrl = userText.replace(/https?:\/\/[^\s]+/g, '').trim();
-  const hasDescription = textWithoutUrl.length > 0;
 
-  if (!isFactCheck && !isSummary && !isScamCheck && hasAnyUrl && hasDescription) {
-    const intent = detectIntentWithAI(userText);
-    if (intent === 'FACT_CHECK')  isFactCheck = true;
-    if (intent === 'SUMMARY')     isSummary   = true;
-    if (intent === 'SCAM_CHECK')  isScamCheck = true;
-  }
+  // 移除常見的禮貌性前綴詞與標點符號，萃取出最核心的「指令文字」
+  // 例如：「請幫我整理：」 -> 「整理」
+  const commandText = textWithoutUrl
+    .replace(/^(請幫我|幫我|請幫忙|幫忙|麻煩|請|我想|可以幫我|幫|替我)\s*/g, '')
+    .replace(/[\s:：、，。！!？?]+$/g, '')
+    .trim();
 
+  // 資訊查核與影片整理：改為「完全比對 (Exact Match)」，必須完全符合關鍵字
+  let isFactCheck = factKeywords.includes(commandText);
+  let isSummary = summaryKeywords.includes(commandText);
+
+  // 詐騙網址偵測：維持「包含比對」，因為詢問句式較多變 (如：這安全嗎)
+  let isScamCheck = scamKeywords.some(kw => userText.includes(kw));
   // 4-B. 詐騙網址偵測
   if (isScamCheck) {
     const urlMatch = userText.match(/https?:\/\/[^\s]+/);
@@ -176,48 +174,6 @@ function isYoutubeUrl(text) {
   return ytRegex.test(text);
 }
 
-/**
- * 以 Gemini AI 判別使用者意圖 (靜態比對未命中時的輔助識別)
- * @param {string} userText - 使用者訊息
- * @return {string} 'FACT_CHECK' | 'SUMMARY' | 'SCAM_CHECK' | 'NONE'
- */
-function detectIntentWithAI(userText) {
-  const prompt = `你是一個意圖分類器，請判斷以下使用者訊息屬於哪一種操作意圖，只需回覆對應的英文代碼，不要有其他文字：
-
-可用代碼：
-- FACT_CHECK：使用者想查核 YouTube 影片的真實性、是否為 AI 生成或內容農場。
-- SUMMARY：使用者想取得 YouTube 影片的摘要、大綱或重點整理。
-- SCAM_CHECK：使用者想確認某個網址是否為詐騙、釣魚或惡意連結。
-- NONE：以上皆非。
-
-使用者訊息：${userText}
-
-請僅回覆代碼（FACT_CHECK / SUMMARY / SCAM_CHECK / NONE）：`;
-
-  try {
-    const payload = {
-      'contents': [{ 'parts': [{ 'text': prompt }] }],
-      'generationConfig': { 'temperature': 0, 'maxOutputTokens': 20 }
-    };
-    const options = {
-      'method': 'post',
-      'contentType': 'application/json',
-      'payload': JSON.stringify(payload),
-      'muteHttpExceptions': true
-    };
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key=${GEMINI_API_KEY}`;
-    const res = UrlFetchApp.fetch(url, options);
-    if (res.getResponseCode() === 200) {
-      const json = JSON.parse(res.getContentText());
-      const intent = (json.candidates?.[0]?.content?.parts?.[0]?.text || 'NONE').trim().toUpperCase();
-      console.log(`[AI 意圖識別] 判別結果：${intent}`);
-      return ['FACT_CHECK', 'SUMMARY', 'SCAM_CHECK'].includes(intent) ? intent : 'NONE';
-    }
-  } catch (err) {
-    console.error('AI 意圖識別失敗:', err);
-  }
-  return 'NONE';
-}
 
 /**
  * 詐騙網址靜態風險評分
@@ -271,23 +227,23 @@ function fetchWebPageContext(url) {
       validateHttpsCertificates: false, // 詐騙網站常有憑證問題，強制讀取
       headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0" }
     });
-    
+
     const code = response.getResponseCode();
     if (code !== 200) return `[無法正常存取] 伺服器回傳狀態碼：${code}`;
-    
+
     const html = response.getContentText();
     // 1. 提取標題
     const titleMatch = html.match(/<title>([\s\S]*?)<\/title>/i);
     const title = titleMatch ? titleMatch[1].trim() : "無標題";
-    
+
     // 2. 提取 Body 文本 (去標籤、去腳本，取前 1200 字)
     const cleanBody = html.replace(/<script[\s\S]*?<\/script>/gi, '')
-                          .replace(/<style[\s\S]*?<\/style>/gi, '')
-                          .replace(/<[^>]+>/g, ' ')
-                          .replace(/\s+/g, ' ')
-                          .trim()
-                          .substring(0, 1200);
-                          
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .substring(0, 1200);
+
     return `標題：${title}\n內容預覽：${cleanBody}`;
   } catch (e) {
     return `[存取失敗] 原因：${e.message}`;
@@ -365,14 +321,15 @@ function callGeminiAPI(userInput, mode = 'FACT_CHECK') {
 
   const SCAM_CHECK_INSTRUCTION = `
 # 💡 角色定位
-你是一位資深的「網路詐騙鑑識專家」與「資安分析師」。你擅長透過網域特徵、URL 結構與社交工程手法，精準判別連結是否為詐騙、釣魚或惡意網站。
+你是一位資深的「網路詐騙鑑識專家」與「資安分析師」。你擅長透過網域特徵、URL 結構、網頁內容語義分析與社交工程手法，精準判別連結是否為詐騙、釣魚或惡意網站。
 
 # 🎯 核心任務
-你將收到一個待偵測網址以及系統預先計算的靜態風險分數，請綜合判斷：
-1. 網域風險：TLD 類型、品牌仿冒、網域亂碼程度。
-2. 結構風險：URL 路徑是否有典型詐騙參數組合。
-3. 社交工程特徵：是否模仿知名電商、物流、政府或金融機構。
-4. 整體風險評級：🔴 高風險 / 🟡 中風險 / 🟢 低風險。
+你將收到一個待偵測網址、網頁標題、內容片段以及系統預先計算的靜態風險分數，請綜合判斷：
+1. 品牌模仿分析：檢測網頁內容或標題是否在模仿特定知名品牌（如 Shopee, Momo, 銀行等），但網域卻不符。
+2. 語義詐騙偵測：分析內容片段是否包含大量詐騙話術（如「限時搶購」、「餘額不足」、「帳號異常」、「請立即登入」）。
+3. 圖文不符檢查：判斷網頁標題與實際內文是否牛頭不對馬嘴（常見於惡意跳轉或釣魚頁面）。
+4. 結構與網域風險：TLD 類型、品牌仿冒、網域亂碼、URL 可疑參數。
+5. 整體風險評級：🔴 高風險 / 🟡 中風險 / 🟢 低風險。
 
 # 🚫 限制與原則
 - 嚴禁 Markdown 語法 (如 #, **, ---)。
@@ -382,27 +339,24 @@ function callGeminiAPI(userInput, mode = 'FACT_CHECK') {
 
 # 🏁 最終呈現格式 (嚴格執行)
 燈號說明：🔴 高風險 / 🟡 中風險 / 🟢 低風險
-[燈號] 風險摘要：[一句話評定]
+[燈號] 風險摘要：[一句話評定風險等級與核心理由]
 
-🔍 網域分析
-▫️ TLD 類型：[評估]
-▫️ 品牌仿冒：[有 / 無 / 疑似]
-▫️ 網域特徵：[說明]
+🔍 深度鑑識分析
+▫️ 品牌模仿：[分析是否偽造知名品牌]
+▫️ 內容偵測：[分析內文語義與誘騙話術]
+▫️ 圖文一致性：[分析標題與內文是否匹配]
 
-⚠️ URL 結構風險
-▫️ [指出可疑的路徑或參數]
-
-🛡️ 風險評級
+🛡️ 安全評級
 靜態掃描分數：[靜態風險分數]分
 整體評級：[🔴 高風險 / 🟡 中風險 / 🟢 低風險]
 
-🚫 建議行動
-[明確告知使用者該怎麼做]
+🚫 專家建議
+[明確告知使用者該採取什麼行動，例如：切勿輸入資料、立即關閉視窗]
   `;
 
   const systemInstruction = mode === 'SUMMARY' ? SUMMARY_INSTRUCTION
-                          : mode === 'SCAM_CHECK' ? SCAM_CHECK_INSTRUCTION
-                          : FACT_CHECK_INSTRUCTION;
+    : mode === 'SCAM_CHECK' ? SCAM_CHECK_INSTRUCTION
+      : FACT_CHECK_INSTRUCTION;
 
   // JSON payload
   const payload = {
