@@ -1,13 +1,13 @@
 /**
  * AI 資訊查核助手 LINE Bot
- * 版別：v2026.08.15.01
+ * 版別：v2026.08.15.02
  * 部署環境: Google Apps Script (GAS)
  *
  * [部署備註]
  * 1. 優化事實查核提示詞：強化「行銷包裝」與「內容實質」的區分能力，避免因標題黨而誤判內容。
  * 2. 新增 AI 參與度評估：更細緻地辨識 AI 輔助製作與純 AI 內容農場的差異。
  * 3. 角色定位升級：以資深數位內容鑑識專家與專業事實查核員進行回應。
- * 4. 調整模型調度順序：優先採用 Gemini 3 Flash 強化事實查核、語意鑑識與深度推論品質。
+ * 4. 建立 5 階分層模型調度梯隊：優先以 Gemini 3.7 Flash 進行深度鑑識，並具備同代、跨世代與極速防逾時保底機制。
  */
 
 // 1. 金鑰讀取 (從 GAS 「指令碼屬性」中讀取，確保安全性)
@@ -388,12 +388,12 @@ function callGeminiAPI(userInput, mode = 'FACT_CHECK') {
     "muteHttpExceptions": true
   };
 
-  // 定義備援模型清單 (查核精準度與深度推理優先)
+  // 定義備援模型清單 (兼顧深度鑑識品質與 LINE Webhook 逾時防護)
   const FALLBACK_MODELS = [
-    'gemini-3-flash-preview',        // 首選：綜合推理與辨識能力最佳
-    'gemini-3.1-flash-lite-preview', // 備選：高速度與備援
-    'gemini-2.5-flash',              // 穩定備援
-    'gemini-2.5-flash-lite',         // 輕量備援
+    'gemini-3.7-flash',              // [Tier 1 主力] 最新效能與能力最佳首選，專精事實與詐騙鑑識
+    'gemini-3.6-flash',              // [Tier 2 次主力] 同代同級備援，維持高水準推論品質
+    'gemini-2.5-flash',              // [Tier 4 穩定基石] 跨世代長期穩定保底
+    'gemini-3.1-flash-lite-preview', // [Tier 5 極速防線] 超低延遲極速回應，確保 Webhook 不逾時
   ];
 
   let lastErrorDetail = "📌 所有模型均無法連線";
